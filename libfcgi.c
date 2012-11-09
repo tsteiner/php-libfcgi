@@ -5,6 +5,7 @@
 #include "php.h"
 #include "php_output.h"
 #include "php_libfcgi.h"
+#include "php_variables.h"
 #include "sapi/cli/cli.h"
 #include <fcgiapp.h>
 #include "SAPI.h"
@@ -115,9 +116,7 @@ PHP_FUNCTION(fcgi_accept)
 {
     static zend_bool fcgi_is_ready = 0;
     char **param;
-    zval **server_vars, **data;
-    HashTable server_hash;
-    HashPosition server_pointer;
+    zval **server_vars;
     
     zend_hash_find(&EG(symbol_table), "_SERVER", sizeof("_SERVER"), (void **) &server_vars);
     
@@ -151,28 +150,11 @@ PHP_FUNCTION(fcgi_accept)
     
     libfcgi_finish();
     
+    
     if (FCGX_Accept_r(&request)) {
         RETURN_FALSE;
     }
     
-    /*
-    for (
-        zend_hash_internal_pointer_reset_ex(&server_hash, &server_pointer);
-        zend_hash_get_current_data_ex(server_hash, (void **) &server_data, &server_pointer) == SUCCESS;
-        zend_hash_move_forward_ex(&server_hash, &server_pointer)
-    ) {
-        char *server_key;
-        uint server_key_length;
-        ulong server_key_index;
-        zend_hash_get_current_key_ex(&server_hash, &server_key, &server_key_length, &server_key_index, 0, &server_pointer);
-        
-    }
-    */
-    //zval_ptr_dtor(server_vars);
-    //MAKE_STD_ZVAL(*server_vars);
-    //Z_DELREF_PP(server_vars);
-    //array_init(*server_vars);
-    //Z_ADDREF_PP(server_vars);
     for (param = request.envp; param && *param; param++) {
         char *name, *value;
         int offset = strcspn(*param, "=");
@@ -182,7 +164,15 @@ PHP_FUNCTION(fcgi_accept)
         value = name + offset + 1;
         
         add_assoc_string(*server_vars, name, value, 1);
+        
+        if (strncmp(name, "QUERY_STRING", sizeof("QUERY_STRING")) == 0) {
+            SG(request_info).query_string = value;
+        }
     }
+    
+    sapi_module.treat_data(PARSE_GET, NULL, NULL TSRMLS_CC);
+    zend_hash_update(&EG(symbol_table), "_GET", sizeof("_GET"), &PG(http_globals)[TRACK_VARS_GET], sizeof(zval *), NULL);
+    Z_ADDREF_P(PG(http_globals)[TRACK_VARS_GET]);
 
     RETURN_TRUE;
 }
