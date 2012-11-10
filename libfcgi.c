@@ -97,6 +97,11 @@ int libfcgi_read_post(char *buffer, uint count_bytes TSRMLS_DC)
     return FCGX_GetStr(buffer, count_bytes, request.in);
 }
 
+char *libfcgi_read_cookies(TSRMLS_D)
+{
+    return FCGX_GetParam("HTTP_COOKIE", request.envp);
+}
+
 void libfcgi_register_server_variables(zval *track_vars_array TSRMLS_DC)
 {
     char **param;
@@ -134,6 +139,8 @@ void libfcgi_finish()
     if (PS(session_status) == php_session_active) {
         // need to destroy the current session
     }
+    
+    sapi_deactivate();
 }
 
 PHP_FUNCTION(fcgi_is_cgi)
@@ -160,6 +167,7 @@ PHP_FUNCTION(fcgi_accept)
         sapi_module.send_headers = libfcgi_send_headers;
         sapi_module.send_header = NULL;
         sapi_module.read_post = libfcgi_read_post;
+        sapi_module.read_cookies = libfcgi_read_cookies;
         sapi_module.register_server_variables = libfcgi_register_server_variables;
         sapi_module.input_filter_init = NULL;
         
@@ -167,7 +175,6 @@ PHP_FUNCTION(fcgi_accept)
     }
     
     libfcgi_finish();
-    sapi_deactivate();
 
     if (FCGX_Accept_r(&request)) {
         RETURN_FALSE;
@@ -176,7 +183,6 @@ PHP_FUNCTION(fcgi_accept)
     SG(server_context) = &request;
     
     SG(request_info).query_string   = FCGX_GetParam("QUERY_STRING", request.envp);
-    SG(request_info).cookie_data    = FCGX_GetParam("HTTP_COOKIE", request.envp);
     SG(request_info).request_method = FCGX_GetParam("REQUEST_METHOD", request.envp);
     SG(request_info).content_type   = FCGX_GetParam("CONTENT_TYPE", request.envp);
     sapi_activate(TSRMLS_C);
