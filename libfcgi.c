@@ -39,7 +39,7 @@ FCGX_Request request;
 
 int libfcgi_write(const char *str, uint str_length TSRMLS_DC)
 {
-    return FCGX_PutS(str, request.out);
+    return FCGX_PutStr(str, str_length, request.out);
 }
 
 void libfcgi_flush(void *server_context)
@@ -92,9 +92,40 @@ int libfcgi_send_headers(sapi_headers_struct *sapi_headers TSRMLS_DC)
     return SAPI_HEADER_SENT_SUCCESSFULLY;
 }
 
-#define ARRAY_UNSET_KEY(a, k) \
-    add_assoc_null(a, k);     \
-    zend_hash_del((a)->value.ht, k, sizeof(k));
+int libfcgi_read_post(char *buffer, uint count_bytes TSRMLS_DC)
+{
+    return FCGX_GetStr(buffer, count_bytes, request.in);
+}
+
+void libfcgi_register_server_variables(zval *track_vars_array TSRMLS_DC)
+{
+    char **param;
+    
+    for (param = request.envp; param && *param; param++) {
+        char *name, *value;
+        int offset = strcspn(*param, "=");
+        name = *param;
+        unsigned int len;
+        
+        name[offset] = '\0';
+        value = name + offset + 1;
+        
+        len = strlen(value);
+        if (sapi_module.input_filter(PARSE_SERVER, name, &value, len, &len TSRMLS_CC)) {
+            php_register_variable(name, value, track_vars_array TSRMLS_CC);
+        }
+    }
+    
+}
+
+int libfcgi_auto_global_reset(zend_auto_global *auto_global TSRMLS_DC)
+{
+    //fprintf(stderr, "Reset %s\n", auto_global->name);
+    if (auto_global->auto_global_callback) {
+        auto_global->auto_global_callback(auto_global->name, auto_global->name_len);
+    }
+    return 0;
+}
 
 void libfcgi_finish()
 {
@@ -103,8 +134,6 @@ void libfcgi_finish()
     if (PS(session_status) == php_session_active) {
         // need to destroy the current session
     }
-    
-    SG(headers_sent) = 0;
 }
 
 PHP_FUNCTION(fcgi_is_cgi)
@@ -115,10 +144,6 @@ PHP_FUNCTION(fcgi_is_cgi)
 PHP_FUNCTION(fcgi_accept)
 {
     static zend_bool fcgi_is_ready = 0;
-    char **param;
-    zval **server_vars;
-    
-    zend_hash_find(&EG(symbol_table), "_SERVER", sizeof("_SERVER"), (void **) &server_vars);
     
     if (!fcgi_is_ready) {
         if (FCGX_Init()) {
@@ -134,45 +159,34 @@ PHP_FUNCTION(fcgi_accept)
         sapi_module.header_handler = NULL;
         sapi_module.send_headers = libfcgi_send_headers;
         sapi_module.send_header = NULL;
-        
-        ARRAY_UNSET_KEY(*server_vars, "PHP_SELF");
-        ARRAY_UNSET_KEY(*server_vars, "SCRIPT_NAME");
-        ARRAY_UNSET_KEY(*server_vars, "SCRIPT_FILENAME");
-        ARRAY_UNSET_KEY(*server_vars, "PATH_TRANSLATED");
-        ARRAY_UNSET_KEY(*server_vars, "DOCUMENT_ROOT");
-        ARRAY_UNSET_KEY(*server_vars, "REQUEST_TIME_FLOAT");
-        ARRAY_UNSET_KEY(*server_vars, "REQUEST_TIME");
-        ARRAY_UNSET_KEY(*server_vars, "argv");
-        ARRAY_UNSET_KEY(*server_vars, "argc");
+        sapi_module.read_post = libfcgi_read_post;
+        sapi_module.register_server_variables = libfcgi_register_server_variables;
+        sapi_module.input_filter_init = NULL;
         
         fcgi_is_ready = 1;
     }
     
     libfcgi_finish();
-    
-    
+    sapi_deactivate();
+
     if (FCGX_Accept_r(&request)) {
         RETURN_FALSE;
     }
     
-    for (param = request.envp; param && *param; param++) {
-        char *name, *value;
-        int offset = strcspn(*param, "=");
-        name = *param;
-        
-        name[offset] = '\0';
-        value = name + offset + 1;
-        
-        add_assoc_string(*server_vars, name, value, 1);
-        
-        if (strncmp(name, "QUERY_STRING", sizeof("QUERY_STRING")) == 0) {
-            SG(request_info).query_string = value;
-        }
-    }
+    SG(server_context) = &request;
     
+    SG(request_info).query_string   = FCGX_GetParam("QUERY_STRING", request.envp);
+    SG(request_info).cookie_data    = FCGX_GetParam("HTTP_COOKIE", request.envp);
+    SG(request_info).request_method = FCGX_GetParam("REQUEST_METHOD", request.envp);
+    SG(request_info).content_type   = FCGX_GetParam("CONTENT_TYPE", request.envp);
+    sapi_activate(TSRMLS_C);
+    zend_hash_apply(CG(auto_globals), (apply_func_t) libfcgi_auto_global_reset TSRMLS_CC);
+    
+    /*
     sapi_module.treat_data(PARSE_GET, NULL, NULL TSRMLS_CC);
     zend_hash_update(&EG(symbol_table), "_GET", sizeof("_GET"), &PG(http_globals)[TRACK_VARS_GET], sizeof(zval *), NULL);
     Z_ADDREF_P(PG(http_globals)[TRACK_VARS_GET]);
+    */
 
     RETURN_TRUE;
 }
