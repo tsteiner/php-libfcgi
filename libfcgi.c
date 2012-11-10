@@ -127,20 +127,20 @@ int libfcgi_auto_global_reset(zend_auto_global *auto_global TSRMLS_DC)
 {
     //fprintf(stderr, "Reset %s\n", auto_global->name);
     if (auto_global->auto_global_callback) {
-        auto_global->auto_global_callback(auto_global->name, auto_global->name_len);
+        auto_global->auto_global_callback(auto_global->name, auto_global->name_len TSRMLS_CC);
     }
     return 0;
 }
 
-void libfcgi_finish()
+void libfcgi_finish(TSRMLS_D)
 {
-    php_output_flush_all();
+    php_output_flush_all(TSRMLS_C);
     
     if (PS(session_status) == php_session_active) {
         // need to destroy the current session
     }
     
-    sapi_deactivate();
+    sapi_deactivate(TSRMLS_C);
 }
 
 PHP_FUNCTION(fcgi_is_cgi)
@@ -174,7 +174,7 @@ PHP_FUNCTION(fcgi_accept)
         fcgi_is_ready = 1;
     }
     
-    libfcgi_finish();
+    libfcgi_finish(TSRMLS_C);
 
     if (FCGX_Accept_r(&request)) {
         RETURN_FALSE;
@@ -199,6 +199,6 @@ PHP_FUNCTION(fcgi_accept)
 
 PHP_FUNCTION(fcgi_finish)
 {
-    libfcgi_finish();
+    libfcgi_finish(TSRMLS_C);
     FCGX_Finish_r(&request);
 }
