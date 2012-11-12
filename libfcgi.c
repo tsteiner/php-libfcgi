@@ -47,6 +47,11 @@ void libfcgi_flush(void *server_context)
     FCGX_FFlush(request.out);
 }
 
+char *libfcgi_getenv(char *name, size_t name_len TSRMLS_DC)
+{
+    return getenv(name);
+}
+
 int libfcgi_send_headers(sapi_headers_struct *sapi_headers TSRMLS_DC)
 {
     zend_llist_position pos;
@@ -132,14 +137,25 @@ int libfcgi_auto_global_reset(zend_auto_global *auto_global TSRMLS_DC)
     return 0;
 }
 
+int libfcgi_request_startup(zend_module_entry *module TSRMLS_DC) {
+    if (module->request_startup_func) {
+        module->request_startup_func(module->type, module->module_number TSRMLS_CC);
+    }
+}
+int libfcgi_request_shutdown(zend_module_entry *module TSRMLS_DC) {
+    if (module->request_shutdown_func) {
+        module->request_shutdown_func(module->type, module->module_number TSRMLS_CC);
+    }
+}
+
 void libfcgi_finish(TSRMLS_D)
 {
     php_output_flush_all(TSRMLS_C);
-    
     if (PS(session_status) == php_session_active) {
         // need to destroy the current session
     }
     
+    zend_hash_reverse_apply(&module_registry, (apply_func_t) libfcgi_request_shutdown TSRMLS_CC);
     sapi_deactivate(TSRMLS_C);
 }
 
@@ -163,6 +179,7 @@ PHP_FUNCTION(fcgi_accept)
         
         sapi_module.ub_write = libfcgi_write;
         sapi_module.flush = libfcgi_flush;
+        sapi_module.getenv = libfcgi_getenv;
         sapi_module.header_handler = NULL;
         sapi_module.send_headers = libfcgi_send_headers;
         sapi_module.send_header = NULL;
@@ -186,6 +203,7 @@ PHP_FUNCTION(fcgi_accept)
     SG(request_info).request_method = FCGX_GetParam("REQUEST_METHOD", request.envp);
     SG(request_info).content_type   = FCGX_GetParam("CONTENT_TYPE", request.envp);
     sapi_activate(TSRMLS_C);
+    zend_hash_apply(&module_registry, (apply_func_t) libfcgi_request_startup TSRMLS_CC);
     zend_hash_apply(CG(auto_globals), (apply_func_t) libfcgi_auto_global_reset TSRMLS_CC);
     
     /*
