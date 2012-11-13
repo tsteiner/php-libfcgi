@@ -156,6 +156,7 @@ void libfcgi_finish(TSRMLS_D)
     }
     
     zend_hash_reverse_apply(&module_registry, (apply_func_t) libfcgi_request_shutdown TSRMLS_CC);
+    zval_ptr_dtor(&PG(http_globals)[TRACK_VARS_FILES]);
     sapi_deactivate(TSRMLS_C);
 }
 
