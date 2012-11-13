@@ -170,6 +170,12 @@ PHP_FUNCTION(fcgi_accept)
     static zend_bool fcgi_is_ready = 0;
     
     if (!fcgi_is_ready) {
+        
+        if (FCGX_IsCGI()) {
+            php_error(E_WARNING, "fcgi_accept(): PHP must be run as a FastCGI application.\n");
+            RETURN_FALSE;
+        }
+        
         if (FCGX_Init()) {
             RETURN_FALSE;
         }
@@ -207,12 +213,6 @@ PHP_FUNCTION(fcgi_accept)
     zend_hash_apply(&module_registry, (apply_func_t) libfcgi_request_startup TSRMLS_CC);
     zend_hash_apply(CG(auto_globals), (apply_func_t) libfcgi_auto_global_reset TSRMLS_CC);
     
-    /*
-    sapi_module.treat_data(PARSE_GET, NULL, NULL TSRMLS_CC);
-    zend_hash_update(&EG(symbol_table), "_GET", sizeof("_GET"), &PG(http_globals)[TRACK_VARS_GET], sizeof(zval *), NULL);
-    Z_ADDREF_P(PG(http_globals)[TRACK_VARS_GET]);
-    */
-
     RETURN_TRUE;
 }
 
